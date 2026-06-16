@@ -41,11 +41,8 @@ permissions:
 1. Push this repo to GitHub.
 2. Go to the repo settings.
 3. Open **Pages**.
-4. Under **Build and deployment**, choose **Deploy from a branch**.
-5. Set:
-   - Branch: `main`
-   - Folder: `/public`
-6. Save the Pages settings.
+4. Under **Build and deployment**, choose **GitHub Actions**.
+5. Run the **Generate jobs RSS feed** workflow manually once from the **Actions** tab, or wait for the next scheduled run.
 
 The feed should become available at:
 
@@ -83,6 +80,8 @@ You can also paste the URL into an RSS validator such as:
 https://validator.w3.org/feed/
 
 ## Maintenance Notes
+
+This repo keeps the generated feed at `public/jobs.xml` and deploys the `public` folder through GitHub Actions Pages. GitHub's branch-based Pages source only supports `/` or `/docs`, so the workflow deploy is the reliable low-maintenance option for publishing `/public`.
 
 The generator posts to this UKG endpoint:
 
