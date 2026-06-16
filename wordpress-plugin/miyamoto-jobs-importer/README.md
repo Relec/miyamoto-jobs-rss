@@ -24,14 +24,20 @@ The importer runs every 6 hours using WP-Cron. WP-Cron depends on site traffic. 
 
 ## Field Mapping
 
-The plugin creates or updates posts in the configured custom post type and writes these meta fields:
+After the feed is fetched successfully, the plugin deletes posts previously created by this importer and recreates the current feed items. This keeps the JetEngine custom post type matched to the current UKG listings. It does not delete manually created posts unless they have the internal `_miyamoto_job_imported` marker.
+
+The plugin writes these meta fields:
 
 | RSS field | JetEngine meta key |
 | --- | --- |
 | `title` | `title` |
 | `link` | `link` |
 | `category` | `category` |
+| `pubDate` | `pubDate` |
+| `jobLocationType` | `jobLocationType` |
 | `description` | `_description` |
+
+The `pubDate` value is saved in `datetime-local` format, for example `2026-06-04T10:37`.
 
 It also stores internal tracking meta:
 
@@ -41,9 +47,9 @@ It also stores internal tracking meta:
 | `_miyamoto_job_imported` | Marks posts created by this importer |
 | `_miyamoto_job_last_seen` | Last successful import time for the job |
 
-## Missing Jobs
+## Current Listings Only
 
-By default, imported jobs that disappear from the RSS feed are moved to Draft. You can change this in the settings page to leave them unchanged or move them to Trash.
+If a job disappears from UKG, it disappears from WordPress on the next successful import because the imported posts are replaced from the current feed.
 
 ## Notes
 

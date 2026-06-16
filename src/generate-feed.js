@@ -14,6 +14,7 @@ const FEED_OUTPUT_PATH = path.resolve(
   process.env.FEED_OUTPUT_PATH ?? 'public/jobs.xml',
 );
 const FEED_URL = process.env.FEED_URL ?? 'jobs.xml';
+const UKG_NAMESPACE_URL = 'https://relec.github.io/miyamoto-jobs-rss/ukg';
 const PAGE_SIZE = positiveIntegerFromEnv('UKG_PAGE_SIZE', 50);
 const MAX_JOBS = positiveIntegerFromEnv('UKG_MAX_JOBS', 500);
 
@@ -207,6 +208,14 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function formatJobLocationType(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  return String(value);
+}
+
 function opportunityDetailUrl(opportunityId) {
   return `${SITE_URL.replace(/\/$/, '')}/OpportunityDetail?opportunityId=${encodeURIComponent(
     opportunityId,
@@ -260,6 +269,7 @@ function buildRssItem(opportunity) {
     briefDescription,
   });
   const category = firstString(opportunity.JobCategoryName);
+  const jobLocationType = formatJobLocationType(opportunity.JobLocationType);
 
   return [
     '    <item>',
@@ -268,6 +278,9 @@ function buildRssItem(opportunity) {
     `      <guid isPermaLink="false">${escapeXml(`miyamoto-job-${id}`)}</guid>`,
     postedDate ? `      <pubDate>${postedDate.toUTCString()}</pubDate>` : null,
     category ? `      <category>${escapeXml(category)}</category>` : null,
+    jobLocationType
+      ? `      <ukg:jobLocationType>${escapeXml(jobLocationType)}</ukg:jobLocationType>`
+      : null,
     description
       ? `      <description>${escapeXml(description)}</description>`
       : null,
@@ -282,7 +295,7 @@ function buildRssFeed(opportunities) {
   const items = opportunities.map(buildRssItem).join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:ukg="${escapeXml(UKG_NAMESPACE_URL)}">
   <channel>
     <title>Miyamoto International Jobs</title>
     <description>Current job openings from Miyamoto International</description>

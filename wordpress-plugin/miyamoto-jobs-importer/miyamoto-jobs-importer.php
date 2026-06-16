@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Miyamoto Jobs Importer
  * Description: Imports the Miyamoto jobs RSS feed into a JetEngine custom post type on a six-hour schedule.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Miyamoto International
  * License: GPL-2.0-or-later
  * Text Domain: miyamoto-jobs-importer
@@ -20,6 +20,7 @@ final class Miyamoto_Jobs_Importer
     private const CRON_HOOK = 'miyamoto_jobs_importer_cron';
     private const SCHEDULE = 'miyamoto_jobs_every_six_hours';
     private const DEFAULT_FEED_URL = 'https://relec.github.io/miyamoto-jobs-rss/jobs.xml';
+    private const UKG_NAMESPACE_URL = 'https://relec.github.io/miyamoto-jobs-rss/ukg';
 
     public static function init(): void
     {
@@ -87,11 +88,6 @@ final class Miyamoto_Jobs_Importer
             $post_status = $defaults['post_status'];
         }
 
-        $missing_action = sanitize_key($input['missing_action'] ?? $defaults['missing_action']);
-        if (!in_array($missing_action, ['draft', 'ignore', 'trash'], true)) {
-            $missing_action = $defaults['missing_action'];
-        }
-
         $feed_url = esc_url_raw($input['feed_url'] ?? $defaults['feed_url']);
         $post_type = sanitize_key($input['post_type'] ?? $defaults['post_type']);
 
@@ -99,7 +95,6 @@ final class Miyamoto_Jobs_Importer
             'feed_url' => $feed_url ?: $defaults['feed_url'],
             'post_type' => $post_type ?: $defaults['post_type'],
             'post_status' => $post_status,
-            'missing_action' => $missing_action,
         ];
     }
 
@@ -182,18 +177,6 @@ final class Miyamoto_Jobs_Importer
                         </td>
                     </tr>
 
-                    <tr>
-                        <th scope="row">
-                            <label for="miyamoto-missing-action"><?php esc_html_e('Jobs missing from feed', 'miyamoto-jobs-importer'); ?></label>
-                        </th>
-                        <td>
-                            <select id="miyamoto-missing-action" name="<?php echo esc_attr(self::OPTION_NAME); ?>[missing_action]">
-                                <option value="draft" <?php selected($options['missing_action'], 'draft'); ?>><?php esc_html_e('Move imported posts to Draft', 'miyamoto-jobs-importer'); ?></option>
-                                <option value="ignore" <?php selected($options['missing_action'], 'ignore'); ?>><?php esc_html_e('Leave imported posts unchanged', 'miyamoto-jobs-importer'); ?></option>
-                                <option value="trash" <?php selected($options['missing_action'], 'trash'); ?>><?php esc_html_e('Move imported posts to Trash', 'miyamoto-jobs-importer'); ?></option>
-                            </select>
-                        </td>
-                    </tr>
                 </table>
 
                 <?php submit_button(__('Save Settings', 'miyamoto-jobs-importer')); ?>
@@ -211,6 +194,9 @@ final class Miyamoto_Jobs_Importer
             <h2><?php esc_html_e('Status', 'miyamoto-jobs-importer'); ?></h2>
             <p>
                 <?php echo esc_html(self::next_run_message()); ?>
+            </p>
+            <p>
+                <?php esc_html_e('Sync mode: after the feed is fetched successfully, this plugin deletes posts previously created by this importer and recreates the current feed items.', 'miyamoto-jobs-importer'); ?>
             </p>
             <?php if (is_array($last_result)) : ?>
                 <p>
@@ -231,6 +217,8 @@ final class Miyamoto_Jobs_Importer
                     <tr><td>title</td><td><code>title</code></td></tr>
                     <tr><td>link</td><td><code>link</code></td></tr>
                     <tr><td>category</td><td><code>category</code></td></tr>
+                    <tr><td>pubDate</td><td><code>pubDate</code></td></tr>
+                    <tr><td>jobLocationType</td><td><code>jobLocationType</code></td></tr>
                     <tr><td>description</td><td><code>_description</code></td></tr>
                 </tbody>
             </table>
@@ -262,10 +250,9 @@ final class Miyamoto_Jobs_Importer
                 [
                     'type' => 'success',
                     'message' => sprintf(
-                        'Import complete: %d created, %d updated, %d hidden, %d skipped.',
+                        'Import complete: %d deleted, %d created, %d skipped.',
+                        $result['deleted'],
                         $result['created'],
-                        $result['updated'],
-                        $result['hidden'],
                         $result['skipped']
                     ),
                 ],
@@ -308,14 +295,13 @@ final class Miyamoto_Jobs_Importer
 
         $max_items = $feed->get_item_quantity(0);
         $items = $max_items > 0 ? $feed->get_items(0, $max_items) : [];
-        $seen_guids = [];
         $result = [
             'created' => 0,
-            'updated' => 0,
-            'hidden' => 0,
+            'deleted' => 0,
             'skipped' => 0,
             'total_feed_items' => count($items),
         ];
+        $jobs = [];
 
         foreach ($items as $item) {
             $job = self::rss_item_to_job($item);
@@ -324,19 +310,33 @@ final class Miyamoto_Jobs_Importer
                 continue;
             }
 
-            $seen_guids[] = $job['guid'];
+            $jobs[] = $job;
+        }
 
-            $upserted = self::upsert_job_post($job, $post_type, $options['post_status']);
-            if (is_wp_error($upserted)) {
+        if (count($items) > 0 && count($jobs) === 0) {
+            $error = new WP_Error(
+                'miyamoto_jobs_no_valid_items',
+                'The feed was fetched, but no valid jobs could be parsed. Existing imported jobs were left unchanged.'
+            );
+            self::record_last_result($error);
+            error_log('[Miyamoto Jobs Importer] ' . $error->get_error_message());
+
+            return $error;
+        }
+
+        $result['deleted'] = self::delete_imported_posts($post_type);
+
+        foreach ($jobs as $job) {
+            $post_id = self::insert_job_post($job, $post_type, $options['post_status']);
+            if (is_wp_error($post_id)) {
                 $result['skipped']++;
-                error_log('[Miyamoto Jobs Importer] Job skipped: ' . $upserted->get_error_message());
+                error_log('[Miyamoto Jobs Importer] Job skipped: ' . $post_id->get_error_message());
                 continue;
             }
 
-            $result[$upserted]++;
+            $result['created']++;
         }
 
-        $result['hidden'] = self::handle_missing_jobs($post_type, $seen_guids, $options['missing_action']);
         self::record_last_result($result);
 
         return $result;
@@ -348,7 +348,6 @@ final class Miyamoto_Jobs_Importer
             'feed_url' => self::DEFAULT_FEED_URL,
             'post_type' => 'jobs',
             'post_status' => 'publish',
-            'missing_action' => 'draft',
         ];
     }
 
@@ -384,19 +383,38 @@ final class Miyamoto_Jobs_Importer
             get_bloginfo('charset') ?: 'UTF-8'
         );
 
+        $timestamp = $item->get_date('U') ? (int) $item->get_date('U') : null;
+
         return [
             'guid' => sanitize_text_field((string) $item->get_id(false)),
             'title' => sanitize_text_field((string) $item->get_title()),
             'link' => esc_url_raw((string) $item->get_link()),
             'category' => implode(', ', array_unique($category_labels)),
+            'pubDate' => $timestamp ? wp_date('Y-m-d\TH:i', $timestamp) : '',
+            'jobLocationType' => self::get_item_tag_value($item, self::UKG_NAMESPACE_URL, 'jobLocationType'),
             'description' => sanitize_textarea_field($description),
-            'timestamp' => $item->get_date('U') ? (int) $item->get_date('U') : null,
+            'timestamp' => $timestamp,
         ];
     }
 
-    private static function upsert_job_post(array $job, string $post_type, string $post_status)
+    private static function get_item_tag_value(SimplePie_Item $item, string $namespace, string $tag): string
     {
-        $existing_id = self::find_post_by_guid($post_type, $job['guid']);
+        $tags = $item->get_item_tags($namespace, $tag);
+        if (!is_array($tags) || empty($tags[0]['data'])) {
+            return '';
+        }
+
+        return sanitize_text_field(
+            html_entity_decode(
+                (string) $tags[0]['data'],
+                ENT_QUOTES | ENT_HTML5,
+                get_bloginfo('charset') ?: 'UTF-8'
+            )
+        );
+    }
+
+    private static function insert_job_post(array $job, string $post_type, string $post_status)
+    {
         $post_data = [
             'post_type' => $post_type,
             'post_title' => $job['title'],
@@ -410,15 +428,8 @@ final class Miyamoto_Jobs_Importer
             $post_data['post_date'] = get_date_from_gmt($post_data['post_date_gmt']);
         }
 
-        if ($existing_id) {
-            $post_data['ID'] = $existing_id;
-            $post_id = wp_update_post($post_data, true);
-            $action = 'updated';
-        } else {
-            $post_data['post_name'] = sanitize_title($job['title'] . '-' . substr(md5($job['guid']), 0, 8));
-            $post_id = wp_insert_post($post_data, true);
-            $action = 'created';
-        }
+        $post_data['post_name'] = sanitize_title($job['title'] . '-' . substr(md5($job['guid']), 0, 8));
+        $post_id = wp_insert_post($post_data, true);
 
         if (is_wp_error($post_id)) {
             return $post_id;
@@ -427,65 +438,36 @@ final class Miyamoto_Jobs_Importer
         update_post_meta($post_id, 'title', $job['title']);
         update_post_meta($post_id, 'link', $job['link']);
         update_post_meta($post_id, 'category', $job['category']);
+        update_post_meta($post_id, 'pubDate', $job['pubDate']);
+        update_post_meta($post_id, 'jobLocationType', $job['jobLocationType']);
         update_post_meta($post_id, '_description', $job['description']);
         update_post_meta($post_id, '_miyamoto_job_guid', $job['guid']);
         update_post_meta($post_id, '_miyamoto_job_imported', '1');
         update_post_meta($post_id, '_miyamoto_job_last_seen', current_time('mysql'));
 
-        return $action;
+        return $post_id;
     }
 
-    private static function find_post_by_guid(string $post_type, string $guid): int
+    private static function delete_imported_posts(string $post_type): int
     {
         $posts = get_posts([
             'post_type' => $post_type,
-            'post_status' => 'any',
-            'fields' => 'ids',
-            'posts_per_page' => 1,
-            'meta_key' => '_miyamoto_job_guid',
-            'meta_value' => $guid,
-            'no_found_rows' => true,
-        ]);
-
-        return $posts ? (int) $posts[0] : 0;
-    }
-
-    private static function handle_missing_jobs(string $post_type, array $seen_guids, string $missing_action): int
-    {
-        if ($missing_action === 'ignore') {
-            return 0;
-        }
-
-        $seen_lookup = array_fill_keys($seen_guids, true);
-        $posts = get_posts([
-            'post_type' => $post_type,
-            'post_status' => 'any',
+            'post_status' => ['publish', 'future', 'draft', 'pending', 'private', 'trash'],
             'fields' => 'ids',
             'posts_per_page' => -1,
             'meta_key' => '_miyamoto_job_imported',
             'meta_value' => '1',
+            'no_found_rows' => true,
         ]);
 
-        $hidden = 0;
+        $deleted = 0;
         foreach ($posts as $post_id) {
-            $guid = (string) get_post_meta($post_id, '_miyamoto_job_guid', true);
-            if ($guid && isset($seen_lookup[$guid])) {
-                continue;
-            }
-
-            if ($missing_action === 'trash') {
-                wp_trash_post($post_id);
-                $hidden++;
-            } elseif (get_post_status($post_id) !== 'draft') {
-                wp_update_post([
-                    'ID' => $post_id,
-                    'post_status' => 'draft',
-                ]);
-                $hidden++;
+            if (wp_delete_post($post_id, true)) {
+                $deleted++;
             }
         }
 
-        return $hidden;
+        return $deleted;
     }
 
     private static function record_last_result($result): void
@@ -504,8 +486,7 @@ final class Miyamoto_Jobs_Importer
             'time' => current_time('mysql'),
             'success' => true,
             'created' => (int) $result['created'],
-            'updated' => (int) $result['updated'],
-            'hidden' => (int) $result['hidden'],
+            'deleted' => (int) $result['deleted'],
             'skipped' => (int) $result['skipped'],
             'total_feed_items' => (int) $result['total_feed_items'],
         ], false);
@@ -531,12 +512,11 @@ final class Miyamoto_Jobs_Importer
         }
 
         return sprintf(
-            '%s - %d feed items, %d created, %d updated, %d hidden, %d skipped.',
+            '%s - %d feed items, %d deleted, %d created, %d skipped.',
             $last_result['time'] ?? 'Unknown time',
             $last_result['total_feed_items'] ?? 0,
+            $last_result['deleted'] ?? 0,
             $last_result['created'] ?? 0,
-            $last_result['updated'] ?? 0,
-            $last_result['hidden'] ?? 0,
             $last_result['skipped'] ?? 0
         );
     }

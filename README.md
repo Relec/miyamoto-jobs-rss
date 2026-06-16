@@ -77,7 +77,7 @@ This repo also includes a small WordPress plugin at:
 wordpress-plugin/miyamoto-jobs-importer
 ```
 
-The plugin fetches the RSS feed on a six-hour WP-Cron schedule and upserts jobs into your JetEngine custom post type. In WordPress Admin, go to **Settings > Miyamoto Jobs Importer**, enter your JetEngine post type slug, save, and run the first import manually.
+The plugin fetches the RSS feed on a six-hour WP-Cron schedule and syncs jobs into your JetEngine custom post type. After a successful feed fetch, it deletes posts previously created by the importer and recreates the current feed items, so WordPress mirrors the current UKG listings. In WordPress Admin, go to **Settings > Miyamoto Jobs Importer**, enter your JetEngine post type slug, save, and run the first import manually.
 
 It maps RSS fields to these JetEngine meta keys:
 
@@ -86,7 +86,11 @@ It maps RSS fields to these JetEngine meta keys:
 | `title` | `title` |
 | `link` | `link` |
 | `category` | `category` |
+| `pubDate` | `pubDate` |
+| `jobLocationType` | `jobLocationType` |
 | `description` | `_description` |
+
+The `pubDate` meta value is saved for JetEngine `datetime-local` fields, for example `2026-06-04T10:37`.
 
 ## Validate The Feed
 
