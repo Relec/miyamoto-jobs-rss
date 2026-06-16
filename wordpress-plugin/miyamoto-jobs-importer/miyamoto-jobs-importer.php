@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Miyamoto Jobs Importer
  * Description: Imports the Miyamoto jobs RSS feed into a JetEngine custom post type on a six-hour schedule.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Miyamoto International
  * License: GPL-2.0-or-later
  * Text Domain: miyamoto-jobs-importer
@@ -29,6 +29,8 @@ final class Miyamoto_Jobs_Importer
         add_action('admin_menu', [self::class, 'add_settings_page']);
         add_action('admin_init', [self::class, 'register_settings']);
         add_action('admin_post_miyamoto_jobs_import_now', [self::class, 'handle_manual_import']);
+        add_action('wp_enqueue_scripts', [self::class, 'enqueue_assets']);
+        add_shortcode('miyamoto_job_description', [self::class, 'render_description_shortcode']);
     }
 
     public static function activate(): void
@@ -62,6 +64,16 @@ final class Miyamoto_Jobs_Importer
             'manage_options',
             'miyamoto-jobs-importer',
             [self::class, 'render_settings_page']
+        );
+    }
+
+    public static function enqueue_assets(): void
+    {
+        wp_enqueue_style(
+            'miyamoto-jobs-importer',
+            plugin_dir_url(__FILE__) . 'assets/miyamoto-jobs-importer.css',
+            [],
+            '1.2.0'
         );
     }
 
@@ -222,8 +234,48 @@ final class Miyamoto_Jobs_Importer
                     <tr><td>description</td><td><code>_description</code></td></tr>
                 </tbody>
             </table>
+
+            <h2><?php esc_html_e('Description Formatting', 'miyamoto-jobs-importer'); ?></h2>
+            <p>
+                <?php esc_html_e('For the existing JetEngine Dynamic Field that outputs _description, add this CSS class to the field or wrapper:', 'miyamoto-jobs-importer'); ?>
+                <code>miyamoto-job-description</code>
+            </p>
+            <p>
+                <?php esc_html_e('Or replace the description field with this shortcode in the listing template:', 'miyamoto-jobs-importer'); ?>
+                <code>[miyamoto_job_description]</code>
+            </p>
         </div>
         <?php
+    }
+
+    public static function render_description_shortcode($atts = []): string
+    {
+        $atts = shortcode_atts(
+            [
+                'id' => 0,
+                'class' => '',
+            ],
+            $atts,
+            'miyamoto_job_description'
+        );
+
+        $post_id = absint($atts['id']) ?: get_the_ID();
+        if (!$post_id) {
+            return '';
+        }
+
+        $description = (string) get_post_meta($post_id, '_description', true);
+        if ($description === '') {
+            return '';
+        }
+
+        $classes = self::sanitize_class_list('miyamoto-job-description ' . $atts['class']);
+
+        return sprintf(
+            '<div class="%1$s">%2$s</div>',
+            esc_attr($classes),
+            self::format_description_html($description)
+        );
     }
 
     public static function handle_manual_import(): void
@@ -359,6 +411,76 @@ final class Miyamoto_Jobs_Importer
     private static function get_options(): array
     {
         return wp_parse_args(get_option(self::OPTION_NAME, []), self::default_options());
+    }
+
+    private static function sanitize_class_list(string $classes): string
+    {
+        $class_names = preg_split('/\s+/', trim($classes));
+        $class_names = array_filter(array_map('sanitize_html_class', $class_names));
+
+        return implode(' ', array_unique($class_names));
+    }
+
+    private static function format_description_html(string $description): string
+    {
+        $description = self::normalize_description_breaks($description);
+        if ($description === '') {
+            return '';
+        }
+
+        $paragraphs = preg_split('/\n\s*\n/', $description);
+        $html = [];
+
+        foreach ($paragraphs as $paragraph) {
+            $paragraph = trim($paragraph);
+            if ($paragraph === '') {
+                continue;
+            }
+
+            $html[] = self::format_description_paragraph($paragraph);
+        }
+
+        return implode('', $html);
+    }
+
+    private static function normalize_description_breaks(string $description): string
+    {
+        $description = html_entity_decode(
+            wp_strip_all_tags($description, true),
+            ENT_QUOTES | ENT_HTML5,
+            get_bloginfo('charset') ?: 'UTF-8'
+        );
+        $description = preg_replace("/\r\n|\r/", "\n", $description);
+        $description = preg_replace("/[ \t]+/", ' ', $description);
+        $description = trim($description);
+
+        if (strpos($description, "\n\n") === false) {
+            $description = preg_replace('/\s+(Posted:\s+)/', "\n\n" . '$1', $description, 1);
+            $description = preg_replace(
+                '/(Posted:\s+[A-Za-z]+ \d{1,2}, \d{4})\s+/',
+                '$1' . "\n\n",
+                $description,
+                1
+            );
+        }
+
+        return trim((string) $description);
+    }
+
+    private static function format_description_paragraph(string $paragraph): string
+    {
+        if (preg_match('/^(Location|Posted):\s*(.+)$/', $paragraph, $matches)) {
+            return sprintf(
+                '<p class="miyamoto-job-description__meta"><strong>%1$s:</strong> %2$s</p>',
+                esc_html($matches[1]),
+                esc_html($matches[2])
+            );
+        }
+
+        return sprintf(
+            '<p>%s</p>',
+            nl2br(esc_html($paragraph), false)
+        );
     }
 
     private static function schedule_import(): void

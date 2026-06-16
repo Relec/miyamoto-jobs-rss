@@ -1,0 +1,17 @@
+.miyamoto-job-description,
+.miyamoto-job-description .jet-listing-dynamic-field__content {
+  white-space: pre-line;
+}
+
+.miyamoto-job-description p {
+  margin: 0 0 0.75rem;
+  white-space: normal;
+}
+
+.miyamoto-job-description p:last-child {
+  margin-bottom: 0;
+}
+
+.miyamoto-job-description__meta {
+  color: inherit;
+}

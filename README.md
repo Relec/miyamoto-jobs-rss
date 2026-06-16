@@ -92,6 +92,8 @@ It maps RSS fields to these JetEngine meta keys:
 
 The `pubDate` meta value is saved for JetEngine `datetime-local` fields, for example `2026-06-04T10:37`.
 
+For cleaner description formatting, add the CSS class `miyamoto-job-description` to the JetEngine Dynamic Field or wrapper that outputs `_description`. The plugin includes CSS that preserves the line breaks between Location, Posted, and the job summary. You can also use the shortcode `[miyamoto_job_description]` in the listing template to output safe paragraph markup.
+
 ## Validate The Feed
 
 After GitHub Pages is enabled, open the feed URL in a browser:

@@ -51,6 +51,30 @@ It also stores internal tracking meta:
 
 If a job disappears from UKG, it disappears from WordPress on the next successful import because the imported posts are replaced from the current feed.
 
+## Description Formatting
+
+The `_description` meta field is stored as plain text with line breaks between:
+
+- Location
+- Posted date
+- Job summary
+
+Browsers collapse plain-text line breaks unless CSS tells them not to. The plugin includes CSS for this class:
+
+```txt
+miyamoto-job-description
+```
+
+In your JetEngine Listing template, add that class to the Dynamic Field or wrapper that outputs `_description`. That will render the line breaks without changing the stored data.
+
+If you want paragraph markup instead, replace the `_description` Dynamic Field with this shortcode:
+
+```txt
+[miyamoto_job_description]
+```
+
+The shortcode outputs safe HTML paragraphs and bold labels for `Location:` and `Posted:`.
+
 ## Notes
 
 The plugin does not create the JetEngine post type or meta fields. Keep those configured in JetEngine, then point this plugin at that post type slug.
