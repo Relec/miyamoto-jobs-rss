@@ -18,6 +18,38 @@ const FEED_URL = process.env.FEED_URL ?? 'jobs.xml';
 const UKG_NAMESPACE_URL = 'https://relec.github.io/miyamoto-jobs-rss/ukg';
 const PAGE_SIZE = positiveIntegerFromEnv('UKG_PAGE_SIZE', 50);
 const MAX_JOBS = positiveIntegerFromEnv('UKG_MAX_JOBS', 500);
+const BROWSER_USER_AGENT =
+  process.env.UKG_USER_AGENT ??
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+const DOCUMENT_HEADERS = {
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache',
+  Pragma: 'no-cache',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+  'User-Agent': BROWSER_USER_AGENT,
+};
+
+const API_HEADERS = {
+  'Content-Type': 'application/json',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache',
+  Origin: SITE_ORIGIN,
+  Pragma: 'no-cache',
+  Referer: SITE_URL,
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-origin',
+  'User-Agent': BROWSER_USER_AGENT,
+  'X-Requested-With': 'XMLHttpRequest',
+};
 
 function positiveIntegerFromEnv(name, fallback) {
   const value = Number.parseInt(process.env[name] ?? '', 10);
@@ -97,63 +129,10 @@ function cookieHeaderFromSetCookie(setCookieHeaders) {
     .join('; ');
 }
 
-async function fetchSessionCookie() {
-  let response;
-
-  try {
-    response = await fetch(SITE_URL, {
-      headers: {
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'User-Agent': 'Mozilla/5.0',
-      },
-    });
-  } catch (error) {
-    throw new Error(`Network request to UKG job board failed: ${error.message}`);
-  }
-
-  if (!response.ok) {
+function parseSearchResponse(responseText, status, statusText, context) {
+  if (status < 200 || status >= 300) {
     throw new Error(
-      `UKG job board request failed with ${response.status} ${response.statusText}. Response sample: ${safeSample(
-        await response.text(),
-      )}`,
-    );
-  }
-
-  return cookieHeaderFromSetCookie(getSetCookieHeaders(response.headers));
-}
-
-async function fetchSearchResults(skip, sessionCookie) {
-  let response;
-  const headers = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    Origin: SITE_ORIGIN,
-    'User-Agent': 'Mozilla/5.0',
-    Referer: SITE_URL,
-  };
-
-  if (sessionCookie) {
-    headers.Cookie = sessionCookie;
-  }
-
-  try {
-    response = await fetch(UKG_SEARCH_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(buildSearchPayload(skip)),
-    });
-  } catch (error) {
-    throw new Error(`Network request to UKG failed: ${error.message}`);
-  }
-
-  const responseText = await response.text();
-
-  if (!response.ok) {
-    throw new Error(
-      `UKG request failed with ${response.status} ${response.statusText}. Response sample: ${safeSample(
+      `${context} failed with ${status} ${statusText}. Response sample: ${safeSample(
         responseText,
       )}`,
     );
@@ -164,7 +143,7 @@ async function fetchSearchResults(skip, sessionCookie) {
     data = JSON.parse(responseText);
   } catch (error) {
     throw new Error(
-      `UKG returned invalid JSON: ${error.message}. Response sample: ${safeSample(
+      `${context} returned invalid JSON: ${error.message}. Response sample: ${safeSample(
         responseText,
       )}`,
     );
@@ -188,14 +167,63 @@ async function fetchSearchResults(skip, sessionCookie) {
   };
 }
 
-async function fetchAllOpportunities() {
+async function fetchSessionCookie() {
+  let response;
+
+  try {
+    response = await fetch(SITE_URL, {
+      headers: DOCUMENT_HEADERS,
+    });
+  } catch (error) {
+    throw new Error(`Network request to UKG job board failed: ${error.message}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `UKG job board request failed with ${response.status} ${response.statusText}. Response sample: ${safeSample(
+        await response.text(),
+      )}`,
+    );
+  }
+
+  return cookieHeaderFromSetCookie(getSetCookieHeaders(response.headers));
+}
+
+async function fetchSearchResults(skip, sessionCookie) {
+  let response;
+  const headers = { ...API_HEADERS };
+
+  if (sessionCookie) {
+    headers.Cookie = sessionCookie;
+  }
+
+  try {
+    response = await fetch(UKG_SEARCH_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildSearchPayload(skip)),
+    });
+  } catch (error) {
+    throw new Error(`Network request to UKG failed: ${error.message}`);
+  }
+
+  const responseText = await response.text();
+
+  return parseSearchResponse(
+    responseText,
+    response.status,
+    response.statusText,
+    'UKG request',
+  );
+}
+
+async function fetchAllOpportunitiesPaged(fetchPage) {
   const allOpportunities = [];
   let totalCount = null;
-  const sessionCookie = await fetchSessionCookie();
 
   while (allOpportunities.length < MAX_JOBS) {
     const { opportunities, totalCount: reportedTotal } =
-      await fetchSearchResults(allOpportunities.length, sessionCookie);
+      await fetchPage(allOpportunities.length);
 
     if (totalCount === null) {
       totalCount = reportedTotal;
@@ -213,6 +241,115 @@ async function fetchAllOpportunities() {
   }
 
   return allOpportunities.slice(0, MAX_JOBS);
+}
+
+async function fetchAllOpportunitiesWithHttp() {
+  let sessionCookie = '';
+
+  try {
+    sessionCookie = await fetchSessionCookie();
+  } catch (error) {
+    console.warn(
+      `Warning: UKG job board warmup failed, trying direct search request. ${error.message}`,
+    );
+  }
+
+  return fetchAllOpportunitiesPaged((skip) =>
+    fetchSearchResults(skip, sessionCookie),
+  );
+}
+
+async function fetchSearchResultsInBrowser(page, skip) {
+  const result = await page.evaluate(
+    async ({ url, payload }) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/plain, */*',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(payload),
+        credentials: 'include',
+      });
+
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        text: await response.text(),
+      };
+    },
+    {
+      url: UKG_SEARCH_URL,
+      payload: buildSearchPayload(skip),
+    },
+  );
+
+  return parseSearchResponse(
+    result.text,
+    result.status,
+    result.statusText,
+    'UKG browser request',
+  );
+}
+
+async function fetchAllOpportunitiesWithBrowser() {
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+
+  try {
+    const context = await browser.newContext({
+      userAgent: BROWSER_USER_AGENT,
+      locale: 'en-US',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    const page = await context.newPage();
+    const response = await page.goto(SITE_URL, {
+      waitUntil: 'domcontentloaded',
+      timeout: 45000,
+    });
+
+    if (!response || !response.ok()) {
+      throw new Error(
+        `UKG browser page request failed with ${response?.status() ?? 'no'} ${
+          response?.statusText() ?? 'response'
+        }. Page sample: ${safeSample(await page.content())}`,
+      );
+    }
+
+    return fetchAllOpportunitiesPaged((skip) =>
+      fetchSearchResultsInBrowser(page, skip),
+    );
+  } finally {
+    await browser.close();
+  }
+}
+
+async function fetchAllOpportunities() {
+  const errors = [];
+
+  try {
+    console.log('Fetching UKG jobs with HTTP strategy.');
+    return await fetchAllOpportunitiesWithHttp();
+  } catch (error) {
+    errors.push(error);
+    console.warn(`HTTP strategy failed: ${error.message}`);
+  }
+
+  try {
+    console.log('Fetching UKG jobs with browser strategy.');
+    return await fetchAllOpportunitiesWithBrowser();
+  } catch (error) {
+    errors.push(error);
+  }
+
+  throw new Error(
+    `All UKG fetch strategies failed:\n${errors
+      .map((error, index) => `${index + 1}. ${error.message}`)
+      .join('\n')}`,
+  );
 }
 
 function firstString(...values) {
@@ -334,8 +471,12 @@ function buildRssItem(opportunity) {
     `      <guid isPermaLink="false">${escapeXml(`miyamoto-job-${id}`)}</guid>`,
     postedDate ? `      <pubDate>${postedDate.toUTCString()}</pubDate>` : null,
     category ? `      <category>${escapeXml(category)}</category>` : null,
+    location ? `      <ukg:location>${escapeXml(location)}</ukg:location>` : null,
     jobLocationType
       ? `      <ukg:jobLocationType>${escapeXml(jobLocationType)}</ukg:jobLocationType>`
+      : null,
+    briefDescription
+      ? `      <ukg:briefDescription>${escapeXml(briefDescription)}</ukg:briefDescription>`
       : null,
     description
       ? `      <description>${escapeXml(description)}</description>`
