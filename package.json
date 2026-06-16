@@ -1,0 +1,14 @@
+{
+  "name": "miyamoto-jobs-rss",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generate a static RSS feed from the Miyamoto International UKG job board.",
+  "type": "module",
+  "scripts": {
+    "generate": "node src/generate-feed.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
