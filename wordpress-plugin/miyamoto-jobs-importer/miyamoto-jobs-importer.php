@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Miyamoto Jobs Importer
  * Description: Imports the Miyamoto jobs RSS feed into a JetEngine custom post type on a six-hour schedule.
- * Version: 1.4.0
+ * Version: 1.4.1
  * Author: Miyamoto International
  * License: GPL-2.0-or-later
  * Text Domain: miyamoto-jobs-importer
@@ -77,7 +77,7 @@ final class Miyamoto_Jobs_Importer
             'miyamoto-jobs-importer',
             plugin_dir_url(__FILE__) . 'assets/miyamoto-jobs-importer.css',
             [],
-            '1.4.0'
+            '1.4.1'
         );
     }
 
@@ -594,7 +594,7 @@ final class Miyamoto_Jobs_Importer
         return [
             'feed_url' => $feed_url,
             'fetch_url' => $fetch_url,
-            'feed_updated_utc' => $feed->get_date('U') ? (int) $feed->get_date('U') : 0,
+            'feed_updated_utc' => self::feed_updated_timestamp($feed, $items),
             'fetched_at_utc' => time(),
             'total_feed_items' => count($items),
             'jobs' => $jobs,
@@ -613,7 +613,7 @@ final class Miyamoto_Jobs_Importer
         $result['deleted'] = self::delete_imported_posts($post_type);
 
         foreach ($jobs as $job) {
-            $post_id = self::insert_job_post($job, $post_type, $options['post_status']);
+            $post_id = self::insert_job_post($job, $post_type, $post_status);
             if (is_wp_error($post_id)) {
                 $result['skipped']++;
                 error_log('[Miyamoto Jobs Importer] Job skipped: ' . $post_id->get_error_message());
@@ -668,6 +668,51 @@ final class Miyamoto_Jobs_Importer
             ],
             $url
         );
+    }
+
+    private static function feed_updated_timestamp($feed, array $items): int
+    {
+        if (is_object($feed) && method_exists($feed, 'get_channel_tags')) {
+            $channel_tags = [
+                ['', 'lastBuildDate'],
+                ['', 'pubDate'],
+                ['http://www.w3.org/2005/Atom', 'updated'],
+                ['http://purl.org/dc/elements/1.1/', 'date'],
+            ];
+
+            foreach ($channel_tags as $channel_tag) {
+                $tags = $feed->get_channel_tags($channel_tag[0], $channel_tag[1]);
+                if (!is_array($tags) || empty($tags[0]['data'])) {
+                    continue;
+                }
+
+                $timestamp = self::timestamp_from_value((string) $tags[0]['data']);
+                if ($timestamp) {
+                    return $timestamp;
+                }
+            }
+        }
+
+        if (is_object($feed) && method_exists($feed, 'get_date')) {
+            $timestamp = (int) $feed->get_date('U');
+            if ($timestamp) {
+                return $timestamp;
+            }
+        }
+
+        $latest_item_timestamp = 0;
+        foreach ($items as $item) {
+            if (!is_object($item) || !method_exists($item, 'get_date')) {
+                continue;
+            }
+
+            $timestamp = (int) $item->get_date('U');
+            if ($timestamp > $latest_item_timestamp) {
+                $latest_item_timestamp = $timestamp;
+            }
+        }
+
+        return $latest_item_timestamp;
     }
 
     private static function format_pacific_datetime($timestamp): string
