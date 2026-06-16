@@ -16,11 +16,15 @@ https://relec.github.io/miyamoto-jobs-rss/jobs.xml
 4. Go to **Settings > Miyamoto Jobs Importer**.
 5. Enter the JetEngine post type slug for your jobs custom post type.
 6. Click **Save Settings**.
-7. Click **Run import now**.
+7. Click **Preview current RSS feed**.
+8. Review the job count, RSS build time, and titles.
+9. Click **Import these jobs**.
 
 ## Schedule
 
 The importer runs every 6 hours using WP-Cron. WP-Cron depends on site traffic. If the site has very low traffic, configure a server cron to call `wp-cron.php`.
+
+Manual preview/import uses a cache-busting RSS URL and disables the WordPress feed cache for that request, so the preview should reflect the current GitHub Pages RSS file instead of a stale SimplePie cache entry.
 
 ## Field Mapping
 
@@ -33,9 +37,13 @@ The plugin writes these meta fields:
 | `title` | `title` |
 | `link` | `link` |
 | `category` | `category` |
+| `location` | `location` |
 | `pubDate` | `pubDate` |
+| `postedDate` | `postedDate` |
 | `jobLocationType` | `jobLocationType` |
+| `briefDescription` | `summary` |
 | `description` | `_description` |
+| formatted description | `_description_html` |
 
 The `pubDate` value is saved in `datetime-local` format, for example `2026-06-04T10:37`.
 
@@ -74,6 +82,29 @@ If you want paragraph markup instead, replace the `_description` Dynamic Field w
 ```
 
 The shortcode outputs safe HTML paragraphs and bold labels for `Location:` and `Posted:`.
+
+## Recommended JetEngine Listing Setup
+
+The most reliable layout is to use separate Dynamic Fields instead of one description blob:
+
+1. Add Dynamic Field for `location` with a label such as `Location:`.
+2. Add Dynamic Field for `postedDate` with a label such as `Posted:`.
+3. Add Dynamic Field for `summary` for the job summary paragraph.
+4. Use `link` for the Apply Now button URL.
+
+This avoids shortcode execution quirks and avoids relying on browser whitespace behavior.
+
+If you use the shortcode, place `[miyamoto_job_description]` in a Shortcode widget/block inside the Listing template. Do not put it inside a Dynamic Field that outputs meta text. Some builder previews do not execute shortcodes with the correct queried post, so test the actual frontend page.
+
+## Manual Preview
+
+The settings page uses a two-step manual import:
+
+1. **Preview current RSS feed** fetches and parses the RSS feed without changing posts.
+2. The preview shows the feed URL, RSS last build time, preview fetch time, count, and job titles.
+3. **Import these jobs** deletes posts previously created by this importer and recreates the jobs shown in the preview.
+
+Times are shown in Pacific time, for example `June 16, 2026 at 4:10 PM PDT`.
 
 ## Notes
 

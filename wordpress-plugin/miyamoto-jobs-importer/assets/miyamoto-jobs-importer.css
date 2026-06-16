@@ -1,6 +1,7 @@
 .miyamoto-job-description,
+.jet-listing-dynamic-field.miyamoto-job-description,
 .miyamoto-job-description .jet-listing-dynamic-field__content {
-  white-space: pre-line;
+  white-space: pre-line !important;
 }
 
 .miyamoto-job-description p {

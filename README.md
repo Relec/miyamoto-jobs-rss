@@ -77,7 +77,7 @@ This repo also includes a small WordPress plugin at:
 wordpress-plugin/miyamoto-jobs-importer
 ```
 
-The plugin fetches the RSS feed on a six-hour WP-Cron schedule and syncs jobs into your JetEngine custom post type. After a successful feed fetch, it deletes posts previously created by the importer and recreates the current feed items, so WordPress mirrors the current UKG listings. In WordPress Admin, go to **Settings > Miyamoto Jobs Importer**, enter your JetEngine post type slug, save, and run the first import manually.
+The plugin fetches the RSS feed on a six-hour WP-Cron schedule and syncs jobs into your JetEngine custom post type. After a successful feed fetch, it deletes posts previously created by the importer and recreates the current feed items, so WordPress mirrors the current UKG listings. In WordPress Admin, go to **Settings > Miyamoto Jobs Importer**, enter your JetEngine post type slug, save, preview the current RSS feed, and then confirm the import.
 
 It maps RSS fields to these JetEngine meta keys:
 
@@ -86,13 +86,21 @@ It maps RSS fields to these JetEngine meta keys:
 | `title` | `title` |
 | `link` | `link` |
 | `category` | `category` |
+| `location` | `location` |
 | `pubDate` | `pubDate` |
+| `postedDate` | `postedDate` |
 | `jobLocationType` | `jobLocationType` |
+| `briefDescription` | `summary` |
 | `description` | `_description` |
+| formatted description | `_description_html` |
 
 The `pubDate` meta value is saved for JetEngine `datetime-local` fields, for example `2026-06-04T10:37`.
 
 For cleaner description formatting, add the CSS class `miyamoto-job-description` to the JetEngine Dynamic Field or wrapper that outputs `_description`. The plugin includes CSS that preserves the line breaks between Location, Posted, and the job summary. You can also use the shortcode `[miyamoto_job_description]` in the listing template to output safe paragraph markup.
+
+The most reliable JetEngine listing layout is separate Dynamic Fields for `location`, `postedDate`, and `summary`, with the Apply Now button using `link`.
+
+Manual imports are two-step: **Preview current RSS feed** shows the current RSS count, RSS build time, and job titles without changing posts; **Import these jobs** imports exactly the previewed jobs. The plugin displays import and RSS build times in Pacific time.
 
 ## Validate The Feed
 
