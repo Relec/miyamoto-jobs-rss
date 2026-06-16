@@ -54,6 +54,8 @@ Replace `USERNAME` with the GitHub user or organization name and `REPO` with the
 
 ## WordPress Setup
 
+### Option 1: Display the RSS Feed Directly
+
 1. Edit the WordPress Careers page.
 2. Add the native WordPress RSS block.
 3. Paste the GitHub Pages feed URL:
@@ -66,6 +68,25 @@ Replace `USERNAME` with the GitHub user or organization name and `REPO` with the
 5. Publish or update the page.
 
 An RSS plugin can use the same feed URL if you need more display controls.
+
+### Option 2: Import Jobs Into JetEngine
+
+This repo also includes a small WordPress plugin at:
+
+```txt
+wordpress-plugin/miyamoto-jobs-importer
+```
+
+The plugin fetches the RSS feed on a six-hour WP-Cron schedule and upserts jobs into your JetEngine custom post type. In WordPress Admin, go to **Settings > Miyamoto Jobs Importer**, enter your JetEngine post type slug, save, and run the first import manually.
+
+It maps RSS fields to these JetEngine meta keys:
+
+| RSS field | Meta key |
+| --- | --- |
+| `title` | `title` |
+| `link` | `link` |
+| `category` | `category` |
+| `description` | `_description` |
 
 ## Validate The Feed
 
