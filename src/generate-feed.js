@@ -9,6 +9,7 @@ const UKG_SEARCH_URL =
   process.env.UKG_SEARCH_URL ??
   `${SITE_URL.replace(/\/$/, '')}/JobBoardView/LoadSearchResults`;
 
+const SITE_ORIGIN = new URL(SITE_URL).origin;
 const FEED_OUTPUT_PATH = path.resolve(
   process.cwd(),
   process.env.FEED_OUTPUT_PATH ?? 'public/jobs.xml',
@@ -76,18 +77,72 @@ function getResponseKeys(data) {
   return Array.isArray(data) ? '(array response)' : `(${typeof data} response)`;
 }
 
-async function fetchSearchResults(skip) {
+function getSetCookieHeaders(headers) {
+  if (typeof headers.getSetCookie === 'function') {
+    return headers.getSetCookie();
+  }
+
+  const header = headers.get('set-cookie');
+  if (!header) {
+    return [];
+  }
+
+  return header.split(/,(?=\s*[^;,=]+=[^;,]+)/);
+}
+
+function cookieHeaderFromSetCookie(setCookieHeaders) {
+  return setCookieHeaders
+    .map((cookie) => cookie.split(';')[0]?.trim())
+    .filter(Boolean)
+    .join('; ');
+}
+
+async function fetchSessionCookie() {
   let response;
+
+  try {
+    response = await fetch(SITE_URL, {
+      headers: {
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+  } catch (error) {
+    throw new Error(`Network request to UKG job board failed: ${error.message}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `UKG job board request failed with ${response.status} ${response.statusText}. Response sample: ${safeSample(
+        await response.text(),
+      )}`,
+    );
+  }
+
+  return cookieHeaderFromSetCookie(getSetCookieHeaders(response.headers));
+}
+
+async function fetchSearchResults(skip, sessionCookie) {
+  let response;
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    Origin: SITE_ORIGIN,
+    'User-Agent': 'Mozilla/5.0',
+    Referer: SITE_URL,
+  };
+
+  if (sessionCookie) {
+    headers.Cookie = sessionCookie;
+  }
 
   try {
     response = await fetch(UKG_SEARCH_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/plain, */*',
-        'User-Agent': 'Mozilla/5.0',
-        Referer: SITE_URL,
-      },
+      headers,
       body: JSON.stringify(buildSearchPayload(skip)),
     });
   } catch (error) {
@@ -136,10 +191,11 @@ async function fetchSearchResults(skip) {
 async function fetchAllOpportunities() {
   const allOpportunities = [];
   let totalCount = null;
+  const sessionCookie = await fetchSessionCookie();
 
   while (allOpportunities.length < MAX_JOBS) {
     const { opportunities, totalCount: reportedTotal } =
-      await fetchSearchResults(allOpportunities.length);
+      await fetchSearchResults(allOpportunities.length, sessionCookie);
 
     if (totalCount === null) {
       totalCount = reportedTotal;
